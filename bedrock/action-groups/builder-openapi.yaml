@@ -1,0 +1,36 @@
+openapi: 3.0.0
+info:
+  title: Builder Agent API
+  version: 1.0.0
+  description: Generates code and uploads to S3
+paths:
+  /build:
+    post:
+      summary: Generate code artifacts
+      operationId: generateCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - build_id
+              properties:
+                build_id:
+                  type: string
+                  description: Unique build identifier
+      responses:
+        '200':
+          description: Build successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files_created:
+                    type: array
+                    items:
+                      type: string
+                  status:
+                    type: string

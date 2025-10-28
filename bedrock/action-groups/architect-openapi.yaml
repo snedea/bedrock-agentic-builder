@@ -1,0 +1,36 @@
+openapi: 3.0.0
+info:
+  title: Architect Agent API
+  version: 1.0.0
+  description: Designs system architecture
+paths:
+  /design:
+    post:
+      summary: Design system architecture
+      operationId: designArchitecture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - build_id
+              properties:
+                build_id:
+                  type: string
+                  description: Unique build identifier
+      responses:
+        '200':
+          description: Successful design
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_structure:
+                    type: object
+                  modules:
+                    type: array
+                  implementation_steps:
+                    type: array

@@ -1,0 +1,40 @@
+openapi: 3.0.0
+info:
+  title: Tester Agent API
+  version: 1.0.0
+  description: Runs tests and implements self-healing
+paths:
+  /test:
+    post:
+      summary: Run tests and validate
+      operationId: runTests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - build_id
+              properties:
+                build_id:
+                  type: string
+                  description: Unique build identifier
+      responses:
+        '200':
+          description: Testing complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tests_passed:
+                    type: boolean
+                  iteration:
+                    type: integer
+                  failures:
+                    type: array
+                  recommendations:
+                    type: array
+                  message:
+                    type: string

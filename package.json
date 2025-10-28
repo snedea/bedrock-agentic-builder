@@ -1,0 +1,26 @@
+{
+  "name": "bedrock-agentic-builder",
+  "version": "1.0.0",
+  "description": "AWS Bedrock-hosted agentic infrastructure for autonomous software development",
+  "scripts": {
+    "test": "cd cdk && npm test",
+    "test:python": "pytest",
+    "test:integration": "pytest tests/integration/",
+    "test:e2e": "./scripts/test-e2e.sh",
+    "deploy": "./scripts/deploy.sh",
+    "bootstrap": "./scripts/bootstrap.sh"
+  },
+  "keywords": [
+    "aws",
+    "bedrock",
+    "ai",
+    "agents",
+    "autonomous",
+    "cdk"
+  ],
+  "author": "Context Foundry",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.5.0"
+  }
+}

@@ -1,0 +1,50 @@
+openapi: 3.0.0
+info:
+  title: Scout Agent API
+  version: 1.0.0
+  description: Analyzes task requirements and researches best practices
+paths:
+  /analyze:
+    post:
+      summary: Analyze task requirements
+      operationId: analyzeRequirements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - build_id
+                - task
+              properties:
+                build_id:
+                  type: string
+                  description: Unique build identifier
+                task:
+                  type: string
+                  description: Task description to analyze
+                mode:
+                  type: string
+                  description: Build mode (new_project, fix_bug, etc.)
+                  default: new_project
+      responses:
+        '200':
+          description: Successful analysis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requirements:
+                    type: array
+                    items:
+                      type: string
+                  tech_stack:
+                    type: object
+                  risks:
+                    type: array
+                    items:
+                      type: string
+                  timeline_estimate:
+                    type: string

@@ -1,0 +1,48 @@
+# CDK
+cdk/cdk.out/
+cdk/node_modules/
+cdk/*.js
+cdk/*.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Build artifacts
+*.zip
+dist/
+build/
+
+# AWS
+.aws-sam/
+
+# Context Foundry
+.context-foundry/

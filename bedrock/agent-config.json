@@ -1,0 +1,61 @@
+{
+  "agentName": "BedrockAgenticBuilder",
+  "description": "Autonomous software development agent that orchestrates Scout, Architect, Builder, and Tester workflows",
+  "foundationModel": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  "instruction": "You are an autonomous software development orchestrator. You coordinate four specialist agents (Scout, Architect, Builder, Tester) to complete software development tasks end-to-end. When given a task, you: 1) Invoke Scout to analyze requirements, 2) Invoke Architect to design the system, 3) Invoke Builder to generate code, 4) Invoke Tester to validate quality. If tests fail and iterations remain, you loop back to Architect for fixes. You work autonomously without human intervention.",
+  "idleSessionTTLInSeconds": 600,
+  "actionGroups": [
+    {
+      "actionGroupName": "ScoutActions",
+      "description": "Analyzes task requirements and researches best practices",
+      "actionGroupExecutor": {
+        "lambda": "arn:aws:lambda:REGION:ACCOUNT:function:bedrock-builder-scout"
+      },
+      "apiSchema": {
+        "s3": {
+          "s3BucketName": "bedrock-builder-kb-ACCOUNT",
+          "s3ObjectKey": "scout-openapi.yaml"
+        }
+      }
+    },
+    {
+      "actionGroupName": "ArchitectActions",
+      "description": "Designs system architecture based on requirements",
+      "actionGroupExecutor": {
+        "lambda": "arn:aws:lambda:REGION:ACCOUNT:function:bedrock-builder-architect"
+      },
+      "apiSchema": {
+        "s3": {
+          "s3BucketName": "bedrock-builder-kb-ACCOUNT",
+          "s3ObjectKey": "architect-openapi.yaml"
+        }
+      }
+    },
+    {
+      "actionGroupName": "BuilderActions",
+      "description": "Generates code and uploads to S3",
+      "actionGroupExecutor": {
+        "lambda": "arn:aws:lambda:REGION:ACCOUNT:function:bedrock-builder-builder"
+      },
+      "apiSchema": {
+        "s3": {
+          "s3BucketName": "bedrock-builder-kb-ACCOUNT",
+          "s3ObjectKey": "builder-openapi.yaml"
+        }
+      }
+    },
+    {
+      "actionGroupName": "TesterActions",
+      "description": "Runs tests and implements self-healing loops",
+      "actionGroupExecutor": {
+        "lambda": "arn:aws:lambda:REGION:ACCOUNT:function:bedrock-builder-tester"
+      },
+      "apiSchema": {
+        "s3": {
+          "s3BucketName": "bedrock-builder-kb-ACCOUNT",
+          "s3ObjectKey": "tester-openapi.yaml"
+        }
+      }
+    }
+  ]
+}
