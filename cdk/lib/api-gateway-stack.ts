@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
@@ -11,6 +12,7 @@ interface ApiGatewayStackProps extends cdk.StackProps {
   bedrockAgentId: string;
   bedrockAgentAliasId: string;
   buildStateTable: dynamodb.Table;
+  stateMachine: sfn.StateMachine;
 }
 
 export class ApiGatewayStack extends cdk.Stack {
@@ -23,7 +25,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const apiHandler = new lambda.Function(this, 'ApiHandler', {
       functionName: 'bedrock-builder-api',
       runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'handler.lambda_handler',
+      handler: 'index.lambda_handler',
       code: lambda.Code.fromInline(`
 import json
 import boto3
@@ -32,24 +34,23 @@ from datetime import datetime
 from uuid import uuid4
 
 dynamodb = boto3.resource('dynamodb')
-bedrock_agent = boto3.client('bedrock-agent-runtime')
+sfn = boto3.client('stepfunctions')
 
 table = dynamodb.Table(os.environ['BUILD_STATE_TABLE'])
-agent_id = os.environ['BEDROCK_AGENT_ID']
-agent_alias_id = os.environ['BEDROCK_AGENT_ALIAS_ID']
+state_machine_arn = os.environ['STATE_MACHINE_ARN']
 
 def lambda_handler(event, context):
     path = event.get('path', '')
     method = event.get('httpMethod', '')
 
     try:
-        if path == '/build' and method == 'POST':
+        if path == '/builds' and method == 'GET':
+            return list_builds(event)
+        elif path == '/build' and method == 'POST':
             return start_build(event)
         elif path.startswith('/build/') and method == 'GET':
             build_id = path.split('/')[-1]
-            if build_id == 'list' or path == '/builds':
-                return list_builds(event)
-            elif '/logs' in path:
+            if '/logs' in path:
                 return get_build_logs(event)
             else:
                 return get_build_status(build_id)
@@ -93,18 +94,57 @@ def start_build(event):
         'updated_at': timestamp,
     })
 
-    # Invoke Bedrock Agent asynchronously
-    # Note: In production, this would use SQS + Lambda or Step Functions
-    # For now, placeholder for agent invocation
-
-    return {
-        'statusCode': 202,
-        'body': json.dumps({
+    # Start Step Functions execution for parallel build workflow
+    try:
+        execution_input = {
             'build_id': build_id,
-            'status': 'initiated',
-            'message': 'Build started'
-        })
-    }
+            'task': task,
+            'mode': mode,
+            'max_iterations': max_iterations
+        }
+
+        response = sfn.start_execution(
+            stateMachineArn=state_machine_arn,
+            name=build_id,  # Use build_id as execution name
+            input=json.dumps(execution_input)
+        )
+
+        print(f'Step Functions execution started for build {build_id}')
+        print(f'Execution ARN: {response["executionArn"]}')
+
+        return {
+            'statusCode': 202,
+            'body': json.dumps({
+                'build_id': build_id,
+                'execution_arn': response['executionArn'],
+                'status': 'initiated',
+                'message': 'Build started with parallel execution'
+            })
+        }
+
+    except Exception as e:
+        error_msg = f'Error starting Step Functions execution: {str(e)}'
+        print(error_msg)
+
+        # Update build status to failed
+        table.update_item(
+            Key={'build_id': build_id},
+            UpdateExpression='SET #status = :status, error = :error',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'failed',
+                ':error': error_msg
+            }
+        )
+
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'build_id': build_id,
+                'status': 'failed',
+                'error': error_msg
+            })
+        }
 
 def get_build_status(build_id):
     response = table.get_item(Key={'build_id': build_id})
@@ -146,22 +186,125 @@ def list_builds(event):
     }
 
 def get_build_logs(event):
-    return {
-        'statusCode': 501,
-        'body': json.dumps({'message': 'Not implemented yet'})
-    }
+    path = event.get('path', '')
+    build_id = path.split('/')[-2]  # Extract from /build/{id}/logs
+
+    # Verify build exists
+    response = table.get_item(Key={'build_id': build_id})
+    if 'Item' not in response:
+        return {
+            'statusCode': 404,
+            'body': json.dumps({'error': 'Build not found'})
+        }
+
+    # Retrieve logs from S3
+    s3 = boto3.client('s3')
+    logs_bucket = os.environ.get('LOGS_BUCKET')
+    log_key = f'{build_id}/test-output.log'
+
+    try:
+        log_response = s3.get_object(Bucket=logs_bucket, Key=log_key)
+        log_content = log_response['Body'].read().decode('utf-8')
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'build_id': build_id,
+                'logs': log_content,
+                'log_size': len(log_content)
+            })
+        }
+    except s3.exceptions.NoSuchKey:
+        return {
+            'statusCode': 404,
+            'body': json.dumps({
+                'error': 'Logs not found',
+                'message': 'Build has not yet generated test logs'
+            })
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': f'Error retrieving logs: {str(e)}'})
+        }
 
 def cancel_build(event):
-    return {
-        'statusCode': 501,
-        'body': json.dumps({'message': 'Not implemented yet'})
-    }
+    path = event.get('path', '')
+    build_id = path.split('/')[-2]  # Extract from /build/{id}/cancel
+
+    # Verify build exists
+    response = table.get_item(Key={'build_id': build_id})
+    if 'Item' not in response:
+        return {
+            'statusCode': 404,
+            'body': json.dumps({'error': 'Build not found'})
+        }
+
+    build = response['Item']
+    current_status = build.get('status', 'unknown')
+
+    # Check if build is already completed or cancelled
+    if current_status in ['completed', 'cancelled', 'failed']:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({
+                'error': 'Build cannot be cancelled',
+                'message': f'Build is already in {current_status} state'
+            })
+        }
+
+    # Stop Step Functions execution
+    try:
+        execution_arn = f'arn:aws:states:{os.environ.get("AWS_REGION", "us-east-1")}:{os.environ.get("AWS_ACCOUNT_ID")}:execution:bedrock-builder-workflow:{build_id}'
+
+        sfn.stop_execution(
+            executionArn=execution_arn,
+            error='UserCancelled',
+            cause='Build cancelled by user via API'
+        )
+
+        # Update build status in DynamoDB
+        table.update_item(
+            Key={'build_id': build_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated_at',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'cancelled',
+                ':updated_at': datetime.utcnow().isoformat()
+            }
+        )
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'build_id': build_id,
+                'status': 'cancelled',
+                'message': 'Build cancelled successfully'
+            })
+        }
+
+    except sfn.exceptions.ExecutionDoesNotExist:
+        # Execution may have already completed/failed
+        return {
+            'statusCode': 400,
+            'body': json.dumps({
+                'error': 'Cannot cancel build',
+                'message': 'Step Functions execution not found or already completed'
+            })
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': f'Error cancelling build: {str(e)}'})
+        }
 `),
       timeout: cdk.Duration.seconds(30),
       environment: {
         BUILD_STATE_TABLE: props.buildStateTable.tableName,
-        BEDROCK_AGENT_ID: props.bedrockAgentId,
-        BEDROCK_AGENT_ALIAS_ID: props.bedrockAgentAliasId,
+        STATE_MACHINE_ARN: props.stateMachine.stateMachineArn,
+        LOGS_BUCKET: `bedrock-builder-logs-${this.account}`,
+        AWS_ACCOUNT_ID: this.account,
+        // AWS_REGION is automatically set by Lambda runtime - don't set manually
       },
       logRetention: logs.RetentionDays.ONE_WEEK,
     });
@@ -169,12 +312,19 @@ def cancel_build(event):
     // Grant DynamoDB permissions
     props.buildStateTable.grantReadWriteData(apiHandler);
 
-    // Grant Bedrock Agent permissions
+    // Grant S3 read permissions for logs bucket
     apiHandler.addToRolePolicy(new iam.PolicyStatement({
-      actions: [
-        'bedrock:InvokeAgent',
-      ],
-      resources: ['*'],
+      actions: ['s3:GetObject'],
+      resources: [`arn:aws:s3:::bedrock-builder-logs-${this.account}/*`],
+    }));
+
+    // Grant Step Functions execution permissions
+    props.stateMachine.grantStartExecution(apiHandler);
+
+    // Grant Step Functions stop execution permissions
+    apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['states:StopExecution'],
+      resources: [props.stateMachine.stateMachineArn.replace(':stateMachine:', ':execution:') + ':*'],
     }));
 
     // REST API
